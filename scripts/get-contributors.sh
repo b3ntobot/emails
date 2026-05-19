@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="kilo-software/kilo-code"
+REPO="Kilo-Org/kilocode"
 TEAM_FILE="${SCRIPT_DIR}/../data/team-members.json"
 DAYS=7
 
