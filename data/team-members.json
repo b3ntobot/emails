@@ -1,10 +1,7 @@
 {
   "team": [
     "benjaminr",
-    "cawstudios",
-    "marius-kilocode",
-    "kirillk",
-    "app/kilo-code-bot"
+    "cawstudios"
   ],
-  "note": "Internal Kilo Code team and bot GitHub usernames excluded from the community contributor list."
+  "note": "Add internal Kilo Code team GitHub usernames here. These will be excluded from the community contributor list."
 }
