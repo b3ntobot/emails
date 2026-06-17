@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# get-contributors.sh — Fetch merged PR authors from kilo-software/kilo-code
+# get-contributors.sh — Fetch merged PR authors from Kilo-Org/kilocode
 # and filter out internal team members.
 # Usage: ./get-contributors.sh --days N
 
@@ -27,48 +27,54 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Load team members to exclude
-TEAM_MEMBERS=()
+TEAM_JSON="[]"
 if [[ -f "$TEAM_FILE" ]]; then
-  while IFS= read -r member; do
-    TEAM_MEMBERS+=("$member")
-  done < <(python3 -c "
+  TEAM_JSON=$(python3 - "$TEAM_FILE" <<'PY'
 import json, sys
-with open('$TEAM_FILE') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
-for m in data.get('team', []):
-    print(m)
-" 2>/dev/null || true)
+print(json.dumps(data.get('team', [])))
+PY
+)
 fi
 
-echo "Fetching merged PRs from ${REPO} (last ${DAYS} days)..." >&2
+SINCE_DATE=$(python3 - "$DAYS" <<'PY'
+from datetime import datetime, timedelta, timezone
+import sys
+print((datetime.now(timezone.utc) - timedelta(days=int(sys.argv[1]))).date().isoformat())
+PY
+)
 
-# Fetch merged PRs with authors
+echo "Fetching merged PRs from ${REPO} since ${SINCE_DATE} (last ${DAYS} days)..." >&2
+
+# GitHub search expects an absolute date here; "merged:>7 days ago"
+# can return no results even when recent PRs exist.
 PR_DATA=$(gh pr list \
   --repo "$REPO" \
   --state merged \
   --limit 500 \
   --json author,mergedAt,url,title \
-  --search "merged:>${DAYS} days ago")
+  --search "merged:>${SINCE_DATE}")
 
 if [[ -z "$PR_DATA" || "$PR_DATA" == "[]" ]]; then
-  echo "No merged PRs found in the last ${DAYS} days." >&2
+  echo "No merged PRs found since ${SINCE_DATE}." >&2
   echo "[]"
   exit 0
 fi
 
-# Filter out team members and deduplicate
-python3 -c "
-import json, sys
+PR_DATA="$PR_DATA" TEAM_JSON="$TEAM_JSON" python3 - <<'PY'
+import json
+import os
 
-pr_data = json.loads('''$PR_DATA''')
-team = set($(printf '"%s" ' "${TEAM_MEMBERS[@]+"${TEAM_MEMBERS[@]}"}"))
+pr_data = json.loads(os.environ.get('PR_DATA', '[]'))
+team = {m.lower() for m in json.loads(os.environ.get('TEAM_JSON', '[]'))}
 
 contributors = {}
 for pr in pr_data:
-    author = pr.get('author', {})
+    author = pr.get('author') or {}
     login = author.get('login', '')
-    if not login or login.lower() in {t.lower() for t in team}:
+    login_lower = login.lower()
+    if not login or login_lower in team or login_lower.startswith('app/') or author.get('is_bot'):
         continue
     if login not in contributors:
         contributors[login] = {
@@ -84,7 +90,6 @@ for pr in pr_data:
         'mergedAt': pr.get('mergedAt', '')
     })
 
-# Sort by PR count (descending)
-result = sorted(contributors.values(), key=lambda x: x['pr_count'], reverse=True)
+result = sorted(contributors.values(), key=lambda x: (-x['pr_count'], x['username'].lower()))
 print(json.dumps(result, indent=2))
-"
+PY
